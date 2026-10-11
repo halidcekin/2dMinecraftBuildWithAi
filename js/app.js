@@ -79,8 +79,13 @@ const LOADING_STEPS = [
   'Gölgeler ve detaylar ekleniyor…',
 ];
 
+let elapsedTimer;
 function startLoading(q) {
   $('loadingQuery').textContent = `“${q}”`;
+  const t0 = Date.now();
+  clearInterval(elapsedTimer);
+  $('loadingElapsed').textContent = '0 sn';
+  elapsedTimer = setInterval(() => { $('loadingElapsed').textContent = `${Math.round((Date.now() - t0) / 1000)} sn`; }, 1000);
   let i = 0;
   $('loadingStep').textContent = LOADING_STEPS[0];
   clearInterval(loadingTimer);
@@ -111,7 +116,8 @@ async function run(query, { forceCustom = false } = {}) {
   const { signal } = controller;
   startLoading(query);
   try {
-    const result = await design(query, { ...s, forceCustom, signal });
+    const onStatus = (msg) => { clearInterval(loadingTimer); $('loadingStep').textContent = msg; };
+    const result = await design(query, { ...s, forceCustom, signal, onStatus });
     if (id !== requestId) return;
     if (result.kind === 'existing') showExisting(result, id);
     else showBuild(result);
@@ -126,7 +132,7 @@ async function run(query, { forceCustom = false } = {}) {
       toast(errorMessage(e), true);
     }
   } finally {
-    if (id === requestId) clearInterval(loadingTimer);
+    if (id === requestId) { clearInterval(loadingTimer); clearInterval(elapsedTimer); }
   }
 }
 
@@ -145,6 +151,7 @@ function cancelRequest() {
   controller?.abort();
   controller = null;
   clearInterval(loadingTimer);
+  clearInterval(elapsedTimer);
   return ++requestId;
 }
 function goHome() { cancelRequest(); show('home'); $('query').focus(); }

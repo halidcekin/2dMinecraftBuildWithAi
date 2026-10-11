@@ -41,19 +41,31 @@ export function validateDesign(o) {
   return null;
 }
 
-async function call(body, { apiKey, model, signal, fetchImpl = fetch }) {
+export const REQUEST_TIMEOUT_MS = 120_000;
+
+async function call(body, { apiKey, model, signal, fetchImpl = fetch, timeoutMs = REQUEST_TIMEOUT_MS }) {
   if (!apiKey) throw new AiError('NO_KEY', 'Gemini API anahtarı girilmemiş');
-  let res;
+  // Kullanıcı iptali ile zaman aşımı aynı fetch'i durdurur; hangisi olduğunu sonra ayırırız.
+  const timer = new AbortController();
+  const t = setTimeout(() => timer.abort(), timeoutMs);
+  const onAbort = () => timer.abort();
+  signal?.addEventListener('abort', onAbort);
+  let res, data;
   try {
     res = await fetchImpl(`${BASE}${encodeURIComponent(model || DEFAULT_MODEL)}:generateContent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
       body: JSON.stringify(body),
-      signal,
+      signal: timer.signal,
     });
-  } catch (e) {
-    if (signal?.aborted || e?.name === 'AbortError') throw new AiError('ABORTED', 'İstek iptal edildi');
+    if (res.ok) data = await res.json();
+  } catch {
+    if (signal?.aborted) throw new AiError('ABORTED', 'İstek iptal edildi');
+    if (timer.signal.aborted) throw new AiError('TIMEOUT', `Gemini ${Math.round(timeoutMs / 1000)} sn içinde yanıt vermedi.`);
     throw new AiError('NETWORK', 'Gemini\'ye bağlanılamadı');
+  } finally {
+    clearTimeout(t);
+    signal?.removeEventListener('abort', onAbort);
   }
   if (!res.ok) {
     let detail = '';
@@ -64,7 +76,6 @@ async function call(body, { apiKey, model, signal, fetchImpl = fetch }) {
     if (res.status === 400 || res.status === 401 || res.status === 403) throw new AiError('BAD_KEY', `Anahtar ya da model geçersiz. ${detail}`.trim());
     throw new AiError('NETWORK', `Gemini hatası (${res.status}). ${detail}`.trim());
   }
-  const data = await res.json();
   const cand = data?.candidates?.[0];
   const text = (cand?.content?.parts ?? []).map((p) => p.text ?? '').join('');
   return { text, cand };
@@ -108,21 +119,23 @@ async function callModel(body, opts) {
       return await call(body, opts);
     } catch (e) {
       if (e.code === 'OVERLOADED' && overloaded < RETRY_DELAYS.length) {
+        opts.onStatus?.('Gemini yoğun, tekrar deneniyor (' + (overloaded + 2) + '. deneme)…');
         await sleep(RETRY_DELAYS[overloaded++]);
         if (opts.signal?.aborted) throw new AiError('ABORTED', 'İstek iptal edildi');
         continue;
       }
-      if ((e.code !== 'MODEL_GONE' && e.code !== 'OVERLOADED') || tried.length >= 2) throw e;
+      if (!['MODEL_GONE', 'OVERLOADED', 'TIMEOUT'].includes(e.code) || tried.length >= 2) throw e;
       tried.push(opts.model);
       opts.model = await pickModel(opts, tried);
+      opts.onStatus?.(e.message + ' ' + opts.model + ' modeline geçiliyor…');
       if (e.code === 'MODEL_GONE') opts.onModelChange?.(opts.model); // yoğunluk geçişi kalıcı değil
       overloaded = 0;
     }
   }
 }
 
-export async function design(query, { apiKey, model, forceCustom = false, signal, fetchImpl, onModelChange, sleep } = {}) {
-  const opts = { apiKey, model, signal, fetchImpl, onModelChange, sleep };
+export async function design(query, { apiKey, model, forceCustom = false, signal, fetchImpl, onModelChange, sleep, timeoutMs, onStatus } = {}) {
+  const opts = { apiKey, model, signal, fetchImpl, onModelChange, sleep, timeoutMs, onStatus };
   const userText = forceCustom
     ? `${query}\n\n(Bu yapıyı mutlaka kendin tasarla: kind "custom" döndür.)`
     : query;
@@ -130,7 +143,7 @@ export async function design(query, { apiKey, model, forceCustom = false, signal
   const body = () => ({
     systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
     contents,
-    generationConfig: { responseMimeType: 'application/json', temperature: 0.7 },
+    generationConfig: { responseMimeType: 'application/json', temperature: 0.7, maxOutputTokens: 16384 },
   });
 
   let lastError = '';

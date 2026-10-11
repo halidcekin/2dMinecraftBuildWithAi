@@ -117,7 +117,8 @@ h1 { font-size: clamp(34px, 6vw, 60px); line-height: 1.05; letter-spacing: -0.03
 #loading { background: var(--bg); }
 .loader { text-align: center; max-width: 520px; }
 .loading-q { font-size: 22px; font-weight: 700; margin: 28px 0 8px; }
-.loading-step { color: var(--muted); margin: 0 0 28px; min-height: 1.5em; }
+.loading-step { color: var(--muted); margin: 0 0 6px; min-height: 1.5em; }
+.loading-elapsed { font-size: 13px; margin: 0 0 24px; font-variant-numeric: tabular-nums; }
 .cube-loader { display: grid; grid-template-columns: repeat(2, 22px); gap: 6px; justify-content: center; }
 .cube-loader span { width: 22px; height: 22px; border-radius: 4px; background: var(--accent); animation: pulse 1.2s infinite ease-in-out; }
 .cube-loader span:nth-child(2) { animation-delay: .15s; background: #7c3aed; }

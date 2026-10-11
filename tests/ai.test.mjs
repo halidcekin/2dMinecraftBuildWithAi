@@ -96,8 +96,8 @@ test('design iptal edilebilir (Codex #2)', async () => {
   let calls = 0;
   const fetchImpl = async (url, init) => {
     calls++;
-    assert.equal(init.signal, ac.signal);
     ac.abort();
+    assert.equal(init.signal.aborted, true); // kullanıcı iptali fetch'e ulaşır
     throw Object.assign(new Error('aborted'), { name: 'AbortError' });
   };
   await assert.rejects(design('x', { ...opts(fetchImpl), signal: ac.signal }), (e) => e.code === 'ABORTED');
@@ -152,4 +152,28 @@ test('503 yoğunlukta tekrar dener, olmazsa başka modele geçer', async () => {
   assert.equal(urls.filter((u) => u.includes('gemini-3.0-flash:generateContent')).length, 3);
   assert.equal(picked, undefined); // geçici geçiş ayarlara yazılmaz
   assert.ok(urls.at(-1).includes('gemini-3.0-flash-lite:generateContent'));
+});
+
+test('yanıt gelmezse zaman aşımı → başka modele geçer ve durum bildirir', async () => {
+  const urls = [], statuses = [];
+  const fetchImpl = (url, init) => {
+    urls.push(url);
+    if (url.endsWith('/models?pageSize=1000')) return Promise.resolve({ ok: true, status: 200, json: async () => ({ models: [
+      { name: 'models/gemini-3.0-flash', supportedGenerationMethods: ['generateContent'] },
+      { name: 'models/gemini-3.0-flash-lite', supportedGenerationMethods: ['generateContent'] },
+    ] }) });
+    if (url.includes('gemini-3.0-flash:')) return new Promise((_, rej) => init.signal.addEventListener('abort', () => rej(Object.assign(new Error('a'), { name: 'AbortError' }))));
+    return Promise.resolve(reply(JSON.stringify(CUSTOM)));
+  };
+  const out = await design('x', { apiKey: 'k', model: 'gemini-3.0-flash', fetchImpl, timeoutMs: 30, sleep: async () => {}, onStatus: (s) => statuses.push(s) });
+  assert.equal(out.title, 'Dev Ceviz');
+  assert.ok(urls.at(-1).includes('flash-lite'));
+  assert.ok(statuses.some((s) => /gemini-3.0-flash-lite/.test(s)));
+});
+
+test('kullanıcı iptali zaman aşımından ayrılır', async () => {
+  const ac = new AbortController();
+  const fetchImpl = (url, init) => new Promise((_, rej) => init.signal.addEventListener('abort', () => rej(Object.assign(new Error('a'), { name: 'AbortError' }))));
+  setTimeout(() => ac.abort(), 10);
+  await assert.rejects(design('x', { ...opts(fetchImpl), signal: ac.signal, timeoutMs: 5000 }), (e) => e.code === 'ABORTED');
 });
