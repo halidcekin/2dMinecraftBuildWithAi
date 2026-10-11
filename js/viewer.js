@@ -69,6 +69,7 @@ export class LayerViewer {
   setGrid(grid) {
     this.grid = grid;
     this.layer = 0;
+    this.userMoved = false;
     this.fit();
   }
 
@@ -88,7 +89,9 @@ export class LayerViewer {
     if (!this.grid) return;
     const { width, height } = this.#cssSize();
     const pad = 48;
-    this.scale = Math.max(2, Math.min(48, Math.min((width - pad) / this.grid.w, (height - pad) / this.grid.d)));
+    this.userMoved = false;
+    const padX = width < 760 ? 140 : 200; // yan paneller (araç çubuğu, katman seçici) için yer
+    this.scale = Math.max(2, Math.min(48, Math.min((width - padX) / this.grid.w, (height - pad) / this.grid.d)));
     this.ox = (width - this.grid.w * this.scale) / 2;
     this.oy = (height - this.grid.d * this.scale) / 2;
     this.draw();
@@ -105,7 +108,7 @@ export class LayerViewer {
     this.canvas.width = Math.round(width * dpr);
     this.canvas.height = Math.round(height * dpr);
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    if (this.grid && !this.fitted) { this.fitted = true; this.fit(); } else this.draw();
+    if (this.grid && !this.userMoved) this.fit(); else this.draw();
   }
 
   #tex(id) {
@@ -138,6 +141,7 @@ export class LayerViewer {
     c.addEventListener('pointermove', (e) => {
       const r = c.getBoundingClientRect();
       if (drag) {
+        this.userMoved = true;
         this.ox = drag.ox + e.clientX - drag.x;
         this.oy = drag.oy + e.clientY - drag.y;
       }
@@ -151,6 +155,7 @@ export class LayerViewer {
       if (e.shiftKey) { this.setLayer(this.layer + (e.deltaY < 0 || e.deltaX < 0 ? 1 : -1)); return; }
       const r = c.getBoundingClientRect();
       const px = e.clientX - r.left, py = e.clientY - r.top;
+      this.userMoved = true;
       const next = Math.max(2, Math.min(96, this.scale * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
       this.ox = px - ((px - this.ox) * next) / this.scale;
       this.oy = py - ((py - this.oy) * next) / this.scale;

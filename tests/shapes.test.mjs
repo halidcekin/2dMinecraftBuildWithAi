@@ -104,3 +104,12 @@ test('size yoksa 32³', () => {
   assert.equal(g.w, 32);
   assert.equal(g.h, 32);
 });
+
+test('scatter replace:true yalnızca var olan blokları boyar', () => {
+  const g = build({ size: [20, 20, 20], steps: [{ ops: [
+    { op: 'box', from: [0, 0, 0], to: [19, 0, 19], block: 'stone' },
+    { op: 'scatter', center: [10, 0, 10], radius: [10, 3, 10], chance: 0.5, block: 'dirt', replace: true, seed: 2 },
+  ] }] });
+  assert.equal(g.count(), 400);
+  assert.ok(g.layerCounts(0).get('dirt') > 0);
+});

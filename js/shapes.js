@@ -144,6 +144,18 @@ const OPS = {
     const c = vec(op.center);
     if (!c) return;
     const r = radius3(op.radius);
+    if (op.replace) {
+      // Doku boyama: elips içindeki var olan blokları `chance` olasılığıyla değiştir.
+      const rand = mulberry32(Math.round(Number(op.seed) || 1));
+      const chance = Math.max(0, Math.min(1, Number(op.chance ?? 0.3) || 0));
+      const rr = r.map((n) => Math.max(0.5, n));
+      const inside = (x, y, z) => {
+        const dx = (x - c[0]) / rr[0], dy = (y - c[1]) / rr[1], dz = (z - c[2]) / rr[2];
+        return dx * dx + dy * dy + dz * dz <= 1 && g.get(x, y, z) !== null && rand() < chance;
+      };
+      fillRegion(g, c.map((v, i) => v - rr[i]), c.map((v, i) => v + rr[i]), inside, block, false);
+      return;
+    }
     const count = Math.max(0, Math.min(MAX_SCATTER, Math.round(Number(op.count) || 10)));
     const rand = mulberry32(Math.round(Number(op.seed) || 1));
     let placed = 0;

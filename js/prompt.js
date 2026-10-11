@@ -32,14 +32,16 @@ OPERATIONS (applied in order; later ops overwrite earlier ones; "block":"air" ca
 - {"op":"cone","base":[x,y,z],"radius":r,"height":h,"block":id}  (vertical, narrows upward)
 - {"op":"line","from":[x,y,z],"to":[x,y,z],"radius":r,"block":id}  (thick line: branches, stems, roots, veins)
 - {"op":"blocks","points":[[x,y,z],...],"block":id}  (small details: eyes, highlights, seeds)
-- {"op":"scatter","center":[x,y,z],"radius":[rx,ry,rz],"count":n,"block":id,"seed":n}  (random texture inside an ellipsoid)
+- {"op":"scatter","center":[x,y,z],"radius":[rx,ry,rz],"count":n,"block":id,"seed":n}  (adds n random blocks inside an ellipsoid: foliage, gravel)
+- {"op":"scatter","center":[x,y,z],"radius":[rx,ry,rz],"replace":true,"chance":0.3,"block":id,"seed":n}
+  (RECOLORS existing blocks inside the ellipsoid with the given probability: use this for surface shading/texture)
 
 ALLOWED BLOCK IDS (use only these): ${Object.keys(BLOCKS).join(', ')}
 
 QUALITY RULES
 - The build must be instantly recognizable. Get the silhouette and proportions right.
 - Use 15 to 60 ops grouped into 3 to 8 logical steps in build order (base/trunk → body → details).
-- Use 2-4 related blocks per surface for shading and texture (e.g. scatter darker/lighter blocks over a surface,
+- Use 2-4 related blocks per surface for shading and texture (e.g. scatter with replace:true to recolor a surface with darker/lighter blocks,
   a lighter highlight on the upper side, a darker tone underneath).
 - Large solid volumes should be "hollow": true to save blocks unless the inside matters.
 - Organic shapes: combine several overlapping ellipsoids; trees: tapered trunk (stacked cylinders), roots and branches
