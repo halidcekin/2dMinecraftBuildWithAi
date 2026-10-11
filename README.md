@@ -1,4 +1,8 @@
-# Blokçu AI — Minecraft Yapı Tasarlayıcı
+# 2dMinecraftBuildWithAi — Blokçu AI
+
+> This is a project to visualize a structure in 2D, similar to the Bloxelizer website, if you can't find it online. Gemini provides you with a 2D bird's-eye view of its construction. If it's something that can be found online, Gemini will redirect you to the relevant website.
+
+**Canlı site:** https://halidcekin.github.io/2dMinecraftBuildWithAi/
 
 Tek bir arama çubuğu. Minecraft'ta yapmak istediğin yapıyı yaz:
 
@@ -19,14 +23,8 @@ Anahtarı olmayanlar ana sayfadaki **"Örnek yapıyı incele"** ile demo yapıy�
 
 ## GitHub Pages'te yayınlama
 
-1. GitHub'da yeni bir repo oluştur (ör. `blokcu-ai`).
-2. Bu klasörü push et:
-   ```bash
-   git remote add origin https://github.com/<kullanici-adin>/blokcu-ai.git
-   git push -u origin main
-   ```
-3. Repo → **Settings → Pages → Build and deployment → Source: Deploy from a branch**, Branch: `main`, klasör: `/ (root)` → **Save**.
-4. Birkaç dakika sonra site `https://<kullanici-adin>.github.io/blokcu-ai/` adresinde yayında olur.
+1. Repo → **Settings → Pages → Build and deployment → Source: Deploy from a branch**, Branch: `main`, klasör: `/ (root)` → **Save**.
+2. Birkaç dakika sonra site https://halidcekin.github.io/2dMinecraftBuildWithAi/ adresinde yayında olur.
 
 Derleme adımı yoktur; dosyalar olduğu gibi servis edilir.
 
