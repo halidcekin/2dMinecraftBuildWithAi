@@ -3,7 +3,7 @@
 import { design, findSchematics, fallbackLinks, AiError, DEFAULT_MODEL } from './ai.js';
 import { build } from './shapes.js';
 import { LayerViewer } from './viewer.js';
-import { toSchemGzip, toCommands } from './export.js';
+import { toSchemGzip, toCommands, toMcfunction } from './export.js';
 import { BLOCKS } from './blocks.js';
 import { DEMO_DESIGN } from './demo.js';
 
@@ -62,6 +62,7 @@ $('settings').addEventListener('close', () => {
 
 // --- Arama akışı ---
 let requestId = 0;
+let controller = null; // aktif isteğin AbortController'ı
 let pendingQuery = null;
 let loadingTimer;
 let lastQuery = '';
@@ -101,15 +102,17 @@ async function run(query, { forceCustom = false } = {}) {
     openSettings('Tasarım yapabilmem için ücretsiz bir Gemini API anahtarı gerekiyor.');
     return;
   }
-  const id = ++requestId;
+  const id = cancelRequest();
+  controller = new AbortController();
+  const { signal } = controller;
   startLoading(query);
   try {
-    const result = await design(query, { ...s, forceCustom });
+    const result = await design(query, { ...s, forceCustom, signal });
     if (id !== requestId) return;
     if (result.kind === 'existing') showExisting(result, id);
     else showBuild(result);
   } catch (e) {
-    if (id !== requestId) return;
+    if (id !== requestId || e?.code === 'ABORTED') return;
     console.error(e);
     show('home');
     if (e instanceof AiError && (e.code === 'NO_KEY' || e.code === 'BAD_KEY')) {
@@ -130,10 +133,17 @@ $('chips').addEventListener('click', (e) => {
   $('query').value = b.dataset.q;
   run(b.dataset.q);
 });
-$('cancelBtn').addEventListener('click', () => { requestId++; clearInterval(loadingTimer); show('home'); });
+$('cancelBtn').addEventListener('click', goHome);
 $('demoBtn').addEventListener('click', () => showBuild(DEMO_DESIGN));
 document.querySelectorAll('[data-home]').forEach((b) => b.addEventListener('click', goHome));
-function goHome() { requestId++; show('home'); $('query').focus(); }
+// Süren isteği gerçekten iptal eder (fetch abort) ve yeni istek kimliği döndürür.
+function cancelRequest() {
+  controller?.abort();
+  controller = null;
+  clearInterval(loadingTimer);
+  return ++requestId;
+}
+function goHome() { cancelRequest(); show('home'); $('query').focus(); }
 
 // --- Hazır yapı ekranı ---
 function linkItem({ title, uri }) {
@@ -155,12 +165,12 @@ async function showExisting(result, id) {
   list.replaceChildren(...[0, 1, 2].map(() => Object.assign(document.createElement('li'), { className: 'skeleton' })));
   show('existing');
   try {
-    const links = await findSchematics(result.searchTerms, settings());
+    const links = await findSchematics(result.searchTerms, { ...settings(), signal: controller?.signal });
     if (id !== requestId) return;
     if (links.length) list.replaceChildren(...links.map(linkItem));
     else list.replaceChildren(Object.assign(document.createElement('li'), { className: 'empty', textContent: 'Doğrudan bir sayfa bulunamadı; aşağıdaki aramaları dene.' }));
   } catch (e) {
-    if (id !== requestId) return;
+    if (id !== requestId || e?.code === 'ABORTED') return;
     list.replaceChildren(Object.assign(document.createElement('li'), { className: 'empty', textContent: `Kaynaklar getirilemedi: ${errorMessage(e)}` }));
   }
 }
@@ -248,6 +258,8 @@ $('layerUp').addEventListener('click', () => viewer.setLayer(viewer.layer + 1));
 $('layerDown').addEventListener('click', () => viewer.setLayer(viewer.layer - 1));
 $('layerRange').addEventListener('input', (e) => viewer.setLayer(Number(e.target.value) - 1));
 $('fitBtn').addEventListener('click', () => viewer.fit());
+$('zoomIn').addEventListener('click', () => viewer.zoomBy(1.3));
+$('zoomOut').addEventListener('click', () => viewer.zoomBy(1 / 1.3));
 $('ghostBtn').addEventListener('click', () => {
   const on = !$('ghostBtn').classList.contains('active');
   $('ghostBtn').classList.toggle('active', on);
@@ -292,9 +304,9 @@ $('dlSchem').addEventListener('click', async () => {
 
 $('dlFunction').addEventListener('click', () => {
   if (!current) return;
-  const lines = toCommands(current.grid);
-  download(new Blob([`# ${current.design.title}\n# Oyuncunun bulunduğu noktadan +x/+y/+z yönünde kurar\n${lines.join('\n')}\n`], { type: 'text/plain' }), `${slug(current.design.title)}.mcfunction`);
-  toast(`${lines.length} komut .mcfunction olarak indirildi`);
+  const text = toMcfunction(current.grid, current.design.title);
+  download(new Blob([text], { type: 'text/plain' }), `${slug(current.design.title)}.mcfunction`);
+  toast('Komutlar .mcfunction olarak indirildi');
 });
 
 $('copyCmds').addEventListener('click', async () => {

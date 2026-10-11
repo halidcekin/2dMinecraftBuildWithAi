@@ -85,6 +85,18 @@ export class LayerViewer {
 
   setGhost(on) { this.ghost = on; this.draw(); }
 
+  // Ekran merkezine (ya da verilen noktaya) göre yakınlaştır.
+  zoomBy(factor, px, py) {
+    const { width, height } = this.#cssSize();
+    px ??= width / 2; py ??= height / 2;
+    const next = Math.max(2, Math.min(96, this.scale * factor));
+    this.ox = px - ((px - this.ox) * next) / this.scale;
+    this.oy = py - ((py - this.oy) * next) / this.scale;
+    this.scale = next;
+    this.userMoved = true;
+    this.draw();
+  }
+
   fit() {
     if (!this.grid) return;
     const { width, height } = this.#cssSize();
@@ -132,14 +144,32 @@ export class LayerViewer {
   #bind() {
     const c = this.canvas;
     let drag = null;
+    const touches = new Map(); // iki parmakla yakınlaştırma
+    let pinch = null;
+    const pinchState = () => {
+      const [a, b] = [...touches.values()];
+      const r = c.getBoundingClientRect();
+      return { dist: Math.hypot(a.x - b.x, a.y - b.y), cx: (a.x + b.x) / 2 - r.left, cy: (a.y + b.y) / 2 - r.top };
+    };
     c.addEventListener('pointerdown', (e) => {
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touches.size === 2) { pinch = pinchState(); drag = null; return; }
       drag = { x: e.clientX, y: e.clientY, ox: this.ox, oy: this.oy };
       c.setPointerCapture(e.pointerId);
       c.classList.add('dragging');
     });
-    c.addEventListener('pointerup', (e) => { drag = null; c.releasePointerCapture?.(e.pointerId); c.classList.remove('dragging'); });
+    const endPointer = (e) => { touches.delete(e.pointerId); if (touches.size < 2) pinch = null; };
+    c.addEventListener('pointercancel', (e) => { endPointer(e); drag = null; });
+    c.addEventListener('pointerup', (e) => { endPointer(e); drag = null; c.releasePointerCapture?.(e.pointerId); c.classList.remove('dragging'); });
     c.addEventListener('pointermove', (e) => {
       const r = c.getBoundingClientRect();
+      if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch && touches.size === 2) {
+        const now = pinchState();
+        if (pinch.dist > 0) this.zoomBy(now.dist / pinch.dist, now.cx, now.cy);
+        pinch = now;
+        return;
+      }
       if (drag) {
         this.userMoved = true;
         this.ox = drag.ox + e.clientX - drag.x;
@@ -154,13 +184,7 @@ export class LayerViewer {
       e.preventDefault();
       if (e.shiftKey) { this.setLayer(this.layer + (e.deltaY < 0 || e.deltaX < 0 ? 1 : -1)); return; }
       const r = c.getBoundingClientRect();
-      const px = e.clientX - r.left, py = e.clientY - r.top;
-      this.userMoved = true;
-      const next = Math.max(2, Math.min(96, this.scale * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
-      this.ox = px - ((px - this.ox) * next) / this.scale;
-      this.oy = py - ((py - this.oy) * next) / this.scale;
-      this.scale = next;
-      this.draw();
+      this.zoomBy(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX - r.left, e.clientY - r.top);
     }, { passive: false });
   }
 

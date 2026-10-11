@@ -1,6 +1,7 @@
 // Gemini REST istemcisi. Anahtar çağırandan gelir; bu modül saklamaz.
 
 import { SYSTEM_PROMPT } from './prompt.js';
+import { OP_NAMES, MAX_OPS } from './shapes.js';
 
 const BASE = 'https://generativelanguage.googleapis.com/v1beta/models/';
 export const DEFAULT_MODEL = 'gemini-2.5-flash';
@@ -8,7 +9,7 @@ export const DEFAULT_MODEL = 'gemini-2.5-flash';
 export class AiError extends Error {
   constructor(code, message) {
     super(message);
-    this.code = code; // NO_KEY | BAD_KEY | QUOTA | NETWORK | BAD_RESPONSE
+    this.code = code; // NO_KEY | BAD_KEY | QUOTA | NETWORK | BAD_RESPONSE | ABORTED
   }
 }
 
@@ -23,12 +24,24 @@ export function validateDesign(o) {
   if (!o || typeof o !== 'object') return 'Yanıt bir JSON nesnesi değil';
   if (o.kind === 'existing') return typeof o.searchTerms === 'string' && o.searchTerms ? null : 'searchTerms eksik';
   if (o.kind !== 'custom') return 'kind "existing" ya da "custom" olmalı';
-  if (!Array.isArray(o.steps)) return 'steps dizisi eksik';
-  if (!Array.isArray(o.size) || o.size.length !== 3) return 'size [W,H,D] olmalı';
+  if (!Array.isArray(o.size) || o.size.length !== 3 || !o.size.every((n) => Number.isFinite(n) && n >= 1 && n <= 64)) {
+    return 'size [W,H,D] olmalı ve her biri 1..64 arası sayı olmalı';
+  }
+  if (!Array.isArray(o.steps) || o.steps.length === 0) return 'steps boş olmayan bir dizi olmalı';
+  let count = 0;
+  for (const st of o.steps) {
+    if (!st || !Array.isArray(st.ops)) return 'her adımın ops dizisi olmalı';
+    for (const op of st.ops) {
+      if (!op || !OP_NAMES.includes(op.op)) return `bilinmeyen op: ${op?.op}`;
+      count++;
+    }
+  }
+  if (count === 0) return 'hiç op yok';
+  if (count > MAX_OPS) return `en fazla ${MAX_OPS} op kullan`;
   return null;
 }
 
-async function call(body, { apiKey, model, fetchImpl = fetch }) {
+async function call(body, { apiKey, model, signal, fetchImpl = fetch }) {
   if (!apiKey) throw new AiError('NO_KEY', 'Gemini API anahtarı girilmemiş');
   let res;
   try {
@@ -36,8 +49,10 @@ async function call(body, { apiKey, model, fetchImpl = fetch }) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
       body: JSON.stringify(body),
+      signal,
     });
-  } catch {
+  } catch (e) {
+    if (signal?.aborted || e?.name === 'AbortError') throw new AiError('ABORTED', 'İstek iptal edildi');
     throw new AiError('NETWORK', 'Gemini\'ye bağlanılamadı');
   }
   if (!res.ok) {
@@ -53,7 +68,7 @@ async function call(body, { apiKey, model, fetchImpl = fetch }) {
   return { text, cand };
 }
 
-export async function design(query, { apiKey, model, forceCustom = false, fetchImpl } = {}) {
+export async function design(query, { apiKey, model, forceCustom = false, signal, fetchImpl } = {}) {
   const userText = forceCustom
     ? `${query}\n\n(Bu yapıyı mutlaka kendin tasarla: kind "custom" döndür.)`
     : query;
@@ -66,7 +81,8 @@ export async function design(query, { apiKey, model, forceCustom = false, fetchI
 
   let lastError = '';
   for (let attempt = 0; attempt < 2; attempt++) {
-    const { text } = await call(body(), { apiKey, model, fetchImpl });
+    if (signal?.aborted) throw new AiError('ABORTED', 'İstek iptal edildi');
+    const { text } = await call(body(), { apiKey, model, signal, fetchImpl });
     try {
       const obj = extractJson(text);
       const err = validateDesign(obj);
@@ -84,16 +100,20 @@ export async function design(query, { apiKey, model, forceCustom = false, fetchI
   throw new AiError('BAD_RESPONSE', `Yapay zeka geçerli bir tasarım üretemedi (${lastError}). Tekrar dene.`);
 }
 
-export async function findSchematics(terms, { apiKey, model, fetchImpl } = {}) {
+const isWebUrl = (u) => {
+  try { return ['https:', 'http:'].includes(new URL(u).protocol); } catch { return false; }
+};
+
+export async function findSchematics(terms, { apiKey, model, signal, fetchImpl } = {}) {
   const { cand } = await call({
     contents: [{ role: 'user', parts: [{ text: `Find downloadable Minecraft schematics / build tutorials for: "${terms}". Prefer bloxelizer.com, planetminecraft.com, minecraft-schematics.com, grabcraft.com. List the best pages.` }] }],
     tools: [{ google_search: {} }],
-  }, { apiKey, model, fetchImpl });
+  }, { apiKey, model, signal, fetchImpl });
   const seen = new Set();
   const links = [];
   for (const ch of cand?.groundingMetadata?.groundingChunks ?? []) {
     const web = ch?.web;
-    if (!web?.uri || seen.has(web.uri)) continue;
+    if (!web?.uri || seen.has(web.uri) || !isWebUrl(web.uri)) continue;
     seen.add(web.uri);
     links.push({ title: web.title || web.uri, uri: web.uri });
   }

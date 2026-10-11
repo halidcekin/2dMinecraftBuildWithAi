@@ -9,7 +9,7 @@ const reply = (text, extra = {}) => ({
 const fail = (status) => ({ ok: false, status, json: async () => ({ error: { message: 'x' } }) });
 const opts = (fetchImpl) => ({ apiKey: 'k', model: 'gemini-test', fetchImpl });
 
-const CUSTOM = { kind: 'custom', title: 'Dev Ceviz', summary: 's', size: [10, 10, 10], steps: [{ name: 'a', ops: [] }] };
+const CUSTOM = { kind: 'custom', title: 'Dev Ceviz', summary: 's', size: [10, 10, 10], steps: [{ name: 'a', ops: [{ op: 'box', from: [0, 0, 0], to: [1, 1, 1], block: 'stone' }] }] };
 
 test('extractJson çitli ve ön metinli yanıt', () => {
   assert.deepEqual(extractJson('Tamam:\n```json\n{"a":1}\n```\nbitti'), { a: 1 });
@@ -79,4 +79,37 @@ test('fallbackLinks', () => {
   assert.equal(l.length, 2);
   assert.ok(l[0].uri.includes('site%3Abloxelizer.com%2Fschematics%20black%20castle') || l[0].uri.includes('site%3Abloxelizer.com%2Fschematics+black+castle'));
   assert.ok(l[1].uri.startsWith('https://www.planetminecraft.com/projects/?keywords=black'));
+});
+
+test('findSchematics yalnızca http(s) linklerini kabul eder (Codex #3)', async () => {
+  const fetchImpl = async () => reply('x', { groundingMetadata: { groundingChunks: [
+    { web: { uri: 'javascript:alert(1)', title: 'kötü' } },
+    { web: { uri: 'data:text/html,hi', title: 'kötü2' } },
+    { web: { uri: 'https://ok.example/a', title: 'iyi' } },
+  ] } });
+  const links = await findSchematics('x', opts(fetchImpl));
+  assert.deepEqual(links.map((l) => l.uri), ['https://ok.example/a']);
+});
+
+test('design iptal edilebilir (Codex #2)', async () => {
+  const ac = new AbortController();
+  let calls = 0;
+  const fetchImpl = async (url, init) => {
+    calls++;
+    assert.equal(init.signal, ac.signal);
+    ac.abort();
+    throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+  };
+  await assert.rejects(design('x', { ...opts(fetchImpl), signal: ac.signal }), (e) => e.code === 'ABORTED');
+  assert.equal(calls, 1);
+});
+
+test('validateDesign sıkı (Codex #6)', () => {
+  const base = { kind: 'custom', title: 't', size: [10, 10, 10], steps: [{ name: 'a', ops: [{ op: 'box', from: [0, 0, 0], to: [1, 1, 1], block: 'stone' }] }] };
+  assert.equal(validateDesign(base), null);
+  assert.ok(validateDesign({ ...base, size: ['a', 10, 10] }));
+  assert.ok(validateDesign({ ...base, size: [0, 10, 10] }));
+  assert.ok(validateDesign({ ...base, steps: [] }));
+  assert.ok(validateDesign({ ...base, steps: [{ name: 'a', ops: [{ op: 'teleport' }] }] }));
+  assert.ok(validateDesign({ ...base, steps: [{ name: 'a' }] }));
 });

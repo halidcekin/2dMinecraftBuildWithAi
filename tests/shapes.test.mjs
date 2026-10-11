@@ -113,3 +113,20 @@ test('scatter replace:true yalnızca var olan blokları boyar', () => {
   assert.equal(g.count(), 400);
   assert.ok(g.layerCounts(0).get('dirt') > 0);
 });
+
+test('dev kalın çizgi donmaz (Codex #1)', () => {
+  const t = Date.now();
+  const g = one({ op: 'line', from: [-128, -128, -128], to: [128, 128, 128], radius: 32, block: 'stone' }, [64, 64, 64]);
+  assert.ok(g.count() > 1000);
+  assert.ok(Date.now() - t < 1500, `${Date.now() - t}ms`);
+});
+
+test('op sayısı sınırlı (Codex #1)', () => {
+  const ops = Array.from({ length: 5000 }, (_, i) => ({ op: 'blocks', points: [[i % 64, 0, 0]], block: 'stone' }));
+  const g = build({ size: [64, 4, 4], steps: [{ ops }] });
+  assert.ok(g.count() <= 64);
+  const t = Date.now();
+  const big = Array.from({ length: 2000 }, () => ({ op: 'box', from: [0, 0, 0], to: [63, 63, 63], block: 'stone' }));
+  build({ size: [64, 64, 64], steps: [{ ops: big }] });
+  assert.ok(Date.now() - t < 3000, `${Date.now() - t}ms`);
+});

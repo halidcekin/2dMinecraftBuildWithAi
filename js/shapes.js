@@ -7,6 +7,10 @@ import { resolveBlock } from './blocks.js';
 
 const LIMIT = MAX_SIZE * 2;
 const MAX_SCATTER = 20000;
+export const MAX_OPS = 400;
+const WORK_BUDGET = 25_000_000; // toplam taranan hücre sınırı (tarayıcı donmasın)
+
+let work = 0; // build() sırasında taranan hücre sayısı
 
 const num = (v, def = 0) => {
   const n = Number(v);
@@ -37,6 +41,10 @@ function fillRegion(grid, min, max, inside, block, hollow, thickness) {
   const y0 = Math.max(0, Math.floor(min[1])), y1 = Math.min(grid.h - 1, Math.ceil(max[1]));
   const z0 = Math.max(0, Math.floor(min[2])), z1 = Math.min(grid.d - 1, Math.ceil(max[2]));
   const t = Math.max(1, Math.min(8, Math.round(num(thickness, 1))));
+  if (x1 < x0 || y1 < y0 || z1 < z0) return;
+  const volume = (x1 - x0 + 1) * (y1 - y0 + 1) * (z1 - z0 + 1);
+  if (work + volume * (hollow ? 4 : 1) > WORK_BUDGET) return;
+  work += volume * (hollow ? 4 : 1);
   for (let y = y0; y <= y1; y++) {
     for (let z = z0; z <= z1; z++) {
       for (let x = x0; x <= x1; x++) {
@@ -120,16 +128,26 @@ const OPS = {
     if (!a || !b) return;
     const r = Math.max(0, Math.min(MAX_SIZE / 2, num(op.radius, 0)));
     const steps = Math.max(1, Math.ceil(Math.max(...a.map((v, i) => Math.abs(b[i] - v)))));
-    const ri = Math.ceil(r);
-    for (let s = 0; s <= steps; s++) {
-      const t = s / steps;
-      const p = a.map((v, i) => Math.round(v + (b[i] - v) * t));
-      if (ri === 0) { g.set(p[0], p[1], p[2], block); continue; }
-      for (let dy = -ri; dy <= ri; dy++)
-        for (let dz = -ri; dz <= ri; dz++)
-          for (let dx = -ri; dx <= ri; dx++)
-            if (dx * dx + dy * dy + dz * dz <= r * r + r) g.set(p[0] + dx, p[1] + dy, p[2] + dz, block);
+    if (r === 0) {
+      for (let s = 0; s <= steps; s++) {
+        const t = s / steps;
+        g.set(...a.map((v, i) => Math.round(v + (b[i] - v) * t)), block);
+      }
+      return;
     }
+    // Kalın çizgi: sınır kutusundaki her hücrenin doğru parçasına uzaklığı
+    const ab = b.map((v, i) => v - a[i]);
+    const len2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2] || 1;
+    const lim = r * r + r;
+    const inside = (x, y, z) => {
+      const ap = [x - a[0], y - a[1], z - a[2]];
+      const t = Math.max(0, Math.min(1, (ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / len2));
+      const dx = ap[0] - ab[0] * t, dy = ap[1] - ab[1] * t, dz = ap[2] - ab[2] * t;
+      return dx * dx + dy * dy + dz * dz <= lim;
+    };
+    const lo = a.map((v, i) => Math.min(v, b[i]) - r - 1);
+    const hi = a.map((v, i) => Math.max(v, b[i]) + r + 1);
+    fillRegion(g, lo, hi, inside, block, false);
   },
 
   blocks(g, op, block) {
@@ -173,10 +191,13 @@ export const OP_NAMES = Object.keys(OPS);
 export function build(design) {
   const size = Array.isArray(design?.size) ? design.size : [32, 32, 32];
   const grid = new VoxelGrid(size[0] ?? 32, size[1] ?? 32, size[2] ?? 32);
+  work = 0;
+  let opCount = 0;
   for (const step of Array.isArray(design?.steps) ? design.steps : []) {
     for (const op of Array.isArray(step?.ops) ? step.ops : []) {
       const fn = op && OPS[op.op];
       if (!fn) continue;
+      if (++opCount > MAX_OPS) return grid;
       fn(grid, op, resolveBlock(op.block));
     }
   }

@@ -97,6 +97,8 @@
       <nav class="toolrail" aria-label="Görünüm araçları">
         <button class="tool" data-home title="Ana sayfa"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11 12 4l9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg></button>
         <button class="tool active" id="ghostBtn" title="Alt katmanı soluk göster"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5" opacity=".5"/></svg></button>
+        <button class="tool" id="zoomIn" title="Yakınlaştır" aria-label="Yakınlaştır"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg></button>
+        <button class="tool" id="zoomOut" title="Uzaklaştır" aria-label="Uzaklaştır"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14"/></svg></button>
         <button class="tool" id="fitBtn" title="Ekrana sığdır"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
         <button class="tool" id="stepsBtn" title="Yapım adımları"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></button>
       </nav>
@@ -142,7 +144,7 @@
           <li><b>Create API key</b> düğmesine bas ve anahtarı kopyala.</li>
           <li>Buraya yapıştırıp <b>Kaydet</b>'e bas.</li>
         </ol>
-        <p>Anahtar yalnızca bu tarayıcıda saklanır ve doğrudan Google'a gönderilir. Bu siteye ya da başka kimseye gitmez; kotanı da yalnızca sen kullanırsın.</p>
+        <p>Anahtar bu tarayıcının yerel depolamasında saklanır ve yalnızca Google'a gönderilir; site sahibine ya da başka kimseye gitmez. Güvenlik için AI Studio'da anahtarına harcama/kota sınırı koymanı ve ortak bilgisayarlarda işin bitince "Anahtarı sil"i kullanmanı öneririz.</p>
       </details>
       <label for="model">Model</label>
       <input id="model" list="models" spellcheck="false">

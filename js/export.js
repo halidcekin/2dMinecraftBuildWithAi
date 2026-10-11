@@ -61,3 +61,12 @@ export function toCommands(grid) {
   }
   return out;
 }
+
+export function toMcfunction(grid, title = '') {
+  const safeTitle = String(title).replace(/[\r\n]+/g, ' ').trim();
+  return [
+    `# ${safeTitle}`,
+    '# Oyuncunun bulunduğu noktadan +x/+y/+z yönünde kurar',
+    ...toCommands(grid),
+  ].join('\n') + '\n';
+}

@@ -71,3 +71,12 @@ test('boş grid', () => {
   const { value: s } = readNbt(toSchemBytes(g));
   assert.equal(s.PaletteMax, 1);
 });
+
+test('mcfunction başlığı satır sonu ile komut enjekte edemez (Codex #4)', async () => {
+  const { toMcfunction } = await import('../js/export.js');
+  const g = new VoxelGrid(2, 1, 1);
+  g.set(0, 0, 0, 'stone');
+  const text = toMcfunction(g, 'Yapı\nkill @e\r\nop me');
+  const lines = text.split('\n').filter(Boolean);
+  for (const l of lines) assert.ok(l.startsWith('#') || l.startsWith('setblock') || l.startsWith('fill'), l);
+});
