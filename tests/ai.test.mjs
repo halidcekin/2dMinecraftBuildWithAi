@@ -177,3 +177,40 @@ test('kullanıcı iptali zaman aşımından ayrılır', async () => {
   setTimeout(() => ac.abort(), 10);
   await assert.rejects(design('x', { ...opts(fetchImpl), signal: ac.signal, timeoutMs: 5000 }), (e) => e.code === 'ABORTED');
 });
+
+const MODELS = { ok: true, status: 200, json: async () => ({ models: [
+  { name: 'models/gemini-3.8-flash', supportedGenerationMethods: ['generateContent'] },
+] }) };
+
+test('model boşsa listeden seçilir ve Gemini 3 için düşünme seviyesi low gönderilir', async () => {
+  const bodies = [];
+  let picked;
+  const fetchImpl = async (url, init) => {
+    if (url.endsWith('/models?pageSize=1000')) return MODELS;
+    bodies.push({ url, body: JSON.parse(init.body) });
+    return reply(JSON.stringify(CUSTOM));
+  };
+  await design('x', { apiKey: 'k', model: '', fetchImpl, onModelChange: (m) => { picked = m; } });
+  assert.equal(picked, 'gemini-3.8-flash');
+  assert.ok(bodies[0].url.includes('gemini-3.8-flash:generateContent'));
+  assert.deepEqual(bodies[0].body.generationConfig.thinkingConfig, { thinkingLevel: 'low' });
+});
+
+test('düşünme ayarı reddedilirse (400) ayarsız tekrar dener', async () => {
+  const bodies = [];
+  const fetchImpl = async (url, init) => {
+    const body = JSON.parse(init.body);
+    bodies.push(body);
+    return body.generationConfig.thinkingConfig ? fail(400) : reply(JSON.stringify(CUSTOM));
+  };
+  const out = await design('x', { apiKey: 'k', model: 'gemini-3.8-flash', fetchImpl });
+  assert.equal(out.title, 'Dev Ceviz');
+  assert.equal(bodies.length, 2);
+  assert.equal(bodies[1].generationConfig.thinkingConfig, undefined);
+});
+
+test('Gemini 2.x modellerine thinkingLevel gönderilmez', async () => {
+  let body;
+  await design('x', { apiKey: 'k', model: 'gemini-2.5-flash', fetchImpl: async (u, i) => { body = JSON.parse(i.body); return reply(JSON.stringify(CUSTOM)); } });
+  assert.equal(body.generationConfig.thinkingConfig, undefined);
+});

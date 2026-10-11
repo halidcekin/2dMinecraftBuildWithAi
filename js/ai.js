@@ -4,7 +4,7 @@ import { SYSTEM_PROMPT } from './prompt.js';
 import { OP_NAMES, MAX_OPS } from './shapes.js';
 
 const BASE = 'https://generativelanguage.googleapis.com/v1beta/models/';
-export const DEFAULT_MODEL = 'gemini-flash-latest';
+export const DEFAULT_MODEL = ''; // boş: ilk istekte anahtarın erişebildiği en yeni flash model seçilir
 
 export class AiError extends Error {
   constructor(code, message) {
@@ -110,14 +110,24 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // 404: model kaldırılmış → güncel modele geç. 500/503: yoğunluk → bekleyip tekrar dene,
 // yine olmazsa başka bir modele geç. opts.model güncellenir ve onModelChange ile bildirilir.
-async function callModel(body, opts) {
+// makeBody(opts) her denemede güncel modele göre gövdeyi kurar.
+async function callModel(makeBody, opts) {
   const sleep = opts.sleep ?? wait;
+  if (!opts.model) {
+    opts.model = await pickModel(opts);
+    opts.onModelChange?.(opts.model);
+  }
   let overloaded = 0;
   const tried = [];
   for (;;) {
     try {
-      return await call(body, opts);
+      return await call(makeBody(opts), opts);
     } catch (e) {
+      // Düşünme ayarını tanımayan model 400 verirse ayarsız tekrar dene
+      if (e.code === 'BAD_KEY' && opts.thinking !== false && version(opts.model) >= 3) {
+        opts.thinking = false;
+        continue;
+      }
       if (e.code === 'OVERLOADED' && overloaded < RETRY_DELAYS.length) {
         opts.onStatus?.('Gemini yoğun, tekrar deneniyor (' + (overloaded + 2) + '. deneme)…');
         await sleep(RETRY_DELAYS[overloaded++]);
@@ -140,16 +150,22 @@ export async function design(query, { apiKey, model, forceCustom = false, signal
     ? `${query}\n\n(Bu yapıyı mutlaka kendin tasarla: kind "custom" döndür.)`
     : query;
   const contents = [{ role: 'user', parts: [{ text: userText }] }];
-  const body = () => ({
+  const body = (o) => ({
     systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
     contents,
-    generationConfig: { responseMimeType: 'application/json', temperature: 0.7, maxOutputTokens: 16384 },
+    generationConfig: {
+      responseMimeType: 'application/json',
+      temperature: 0.7,
+      maxOutputTokens: 16384,
+      // Gemini 3 varsayılan olarak çok uzun düşünüyor (80+ sn); düşük seviye yeterli.
+      ...(o.thinking !== false && version(o.model) >= 3 ? { thinkingConfig: { thinkingLevel: 'low' } } : {}),
+    },
   });
 
   let lastError = '';
   for (let attempt = 0; attempt < 2; attempt++) {
     if (signal?.aborted) throw new AiError('ABORTED', 'İstek iptal edildi');
-    const { text } = await callModel(body(), opts);
+    const { text } = await callModel(body, opts);
     try {
       const obj = extractJson(text);
       const err = validateDesign(obj);
@@ -172,10 +188,10 @@ const isWebUrl = (u) => {
 };
 
 export async function findSchematics(terms, { apiKey, model, signal, fetchImpl, onModelChange } = {}) {
-  const { cand } = await callModel({
+  const { cand } = await callModel(() => ({
     contents: [{ role: 'user', parts: [{ text: `Find downloadable Minecraft schematics / build tutorials for: "${terms}". Prefer bloxelizer.com, planetminecraft.com, minecraft-schematics.com, grabcraft.com. List the best pages.` }] }],
     tools: [{ google_search: {} }],
-  }, { apiKey, model, signal, fetchImpl, onModelChange });
+  }), { apiKey, model, signal, fetchImpl, onModelChange });
   const seen = new Set();
   const links = [];
   for (const ch of cand?.groundingMetadata?.groundingChunks ?? []) {

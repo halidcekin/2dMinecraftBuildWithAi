@@ -19,7 +19,8 @@ const store = {
 const KEY = 'mcab.apiKey', MODEL = 'mcab.model';
 const settings = () => ({
   apiKey: store.get(KEY).trim(),
-  model: store.get(MODEL).trim() || DEFAULT_MODEL,
+  // Eski sürümlerin kaydettiği yavaş/kapalı modeller otomatik seçime döner
+  model: ['gemini-flash-latest', 'gemini-2.5-flash'].includes(store.get(MODEL).trim()) ? DEFAULT_MODEL : store.get(MODEL).trim() || DEFAULT_MODEL,
   onModelChange: (m) => store.set(MODEL, m), // kaldırılan modelin yerine bulunan modeli hatırla
 });
 
