@@ -59,6 +59,7 @@ async function call(body, { apiKey, model, signal, fetchImpl = fetch }) {
     let detail = '';
     try { detail = (await res.json())?.error?.message ?? ''; } catch { /* boş */ }
     if (res.status === 404) throw new AiError('MODEL_GONE', `Model bulunamadı. ${detail}`.trim());
+    if (res.status === 500 || res.status === 503) throw new AiError('OVERLOADED', 'Gemini şu an çok yoğun. Biraz sonra tekrar dene.');
     if (res.status === 429) throw new AiError('QUOTA', 'Gemini kotası doldu. Biraz bekleyip tekrar dene.');
     if (res.status === 400 || res.status === 401 || res.status === 403) throw new AiError('BAD_KEY', `Anahtar ya da model geçersiz. ${detail}`.trim());
     throw new AiError('NETWORK', `Gemini hatası (${res.status}). ${detail}`.trim());
@@ -72,7 +73,7 @@ async function call(body, { apiKey, model, signal, fetchImpl = fetch }) {
 const version = (name) => (name.match(/gemini-(\d+(?:\.\d+)?)/) || [0, '0'])[1] * 1;
 
 // Kullanılabilir modellerden en yeni kararlı "flash" modelini seçer.
-export async function pickModel({ apiKey, signal, fetchImpl = fetch }) {
+export async function pickModel({ apiKey, signal, fetchImpl = fetch }, exclude = []) {
   let res;
   try {
     res = await fetchImpl(`${BASE.slice(0, -1)}?pageSize=1000`, { headers: { 'x-goog-api-key': apiKey }, signal });
@@ -83,29 +84,45 @@ export async function pickModel({ apiKey, signal, fetchImpl = fetch }) {
   const names = ((await res.json())?.models ?? [])
     .filter((m) => m.supportedGenerationMethods?.includes('generateContent'))
     .map((m) => String(m.name).replace(/^models\//, ''))
-    .filter((n) => n.startsWith('gemini-'));
+    .filter((n) => n.startsWith('gemini-') && !exclude.includes(n));
   const byVersion = (a, b) => version(b) - version(a);
   const plain = names.filter((n) => /^gemini-[\d.]+-flash$/.test(n)).sort(byVersion);
   const flash = names.filter((n) => n.includes('flash') && !/lite|image|tts|audio|live/.test(n)).sort(byVersion);
-  const pick = plain[0] ?? flash[0] ?? names.sort(byVersion)[0];
+  const lite = names.filter((n) => n.includes('flash') && !/image|tts|audio|live/.test(n)).sort(byVersion);
+  const pick = plain[0] ?? flash[0] ?? lite[0] ?? names.sort(byVersion)[0];
   if (!pick) throw new AiError('BAD_KEY', 'Bu anahtarla kullanılabilir Gemini modeli bulunamadı.');
   return pick;
 }
 
-// Model kaldırılmışsa (404) güncel modeli bulup bir kez daha dener; opts.model güncellenir.
+const RETRY_DELAYS = [2000, 5000];
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// 404: model kaldırılmış → güncel modele geç. 500/503: yoğunluk → bekleyip tekrar dene,
+// yine olmazsa başka bir modele geç. opts.model güncellenir ve onModelChange ile bildirilir.
 async function callModel(body, opts) {
-  try {
-    return await call(body, opts);
-  } catch (e) {
-    if (e.code !== 'MODEL_GONE') throw e;
-    opts.model = await pickModel(opts);
-    opts.onModelChange?.(opts.model);
-    return call(body, opts);
+  const sleep = opts.sleep ?? wait;
+  let overloaded = 0;
+  const tried = [];
+  for (;;) {
+    try {
+      return await call(body, opts);
+    } catch (e) {
+      if (e.code === 'OVERLOADED' && overloaded < RETRY_DELAYS.length) {
+        await sleep(RETRY_DELAYS[overloaded++]);
+        if (opts.signal?.aborted) throw new AiError('ABORTED', 'İstek iptal edildi');
+        continue;
+      }
+      if ((e.code !== 'MODEL_GONE' && e.code !== 'OVERLOADED') || tried.length >= 2) throw e;
+      tried.push(opts.model);
+      opts.model = await pickModel(opts, tried);
+      if (e.code === 'MODEL_GONE') opts.onModelChange?.(opts.model); // yoğunluk geçişi kalıcı değil
+      overloaded = 0;
+    }
   }
 }
 
-export async function design(query, { apiKey, model, forceCustom = false, signal, fetchImpl, onModelChange } = {}) {
-  const opts = { apiKey, model, signal, fetchImpl, onModelChange };
+export async function design(query, { apiKey, model, forceCustom = false, signal, fetchImpl, onModelChange, sleep } = {}) {
+  const opts = { apiKey, model, signal, fetchImpl, onModelChange, sleep };
   const userText = forceCustom
     ? `${query}\n\n(Bu yapıyı mutlaka kendin tasarla: kind "custom" döndür.)`
     : query;

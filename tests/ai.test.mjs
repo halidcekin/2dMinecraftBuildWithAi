@@ -134,3 +134,22 @@ test('model kalkmışsa (404) güncel flash modeline geçer', async () => {
   assert.equal(picked, 'gemini-3.0-flash');
   assert.ok(urls.at(-1).includes('gemini-3.0-flash:generateContent'));
 });
+
+test('503 yoğunlukta tekrar dener, olmazsa başka modele geçer', async () => {
+  const urls = [];
+  const fetchImpl = async (url) => {
+    urls.push(url);
+    if (url.endsWith('/models?pageSize=1000')) return { ok: true, status: 200, json: async () => ({ models: [
+      { name: 'models/gemini-3.0-flash', supportedGenerationMethods: ['generateContent'] },
+      { name: 'models/gemini-3.0-flash-lite', supportedGenerationMethods: ['generateContent'] },
+    ] }) };
+    if (url.includes('gemini-3.0-flash:generateContent')) return fail(503);
+    return reply(JSON.stringify(CUSTOM));
+  };
+  let picked;
+  const out = await design('x', { apiKey: 'k', model: 'gemini-3.0-flash', fetchImpl, sleep: async () => {}, onModelChange: (m) => { picked = m; } });
+  assert.equal(out.title, 'Dev Ceviz');
+  assert.equal(urls.filter((u) => u.includes('gemini-3.0-flash:generateContent')).length, 3);
+  assert.equal(picked, undefined); // geçici geçiş ayarlara yazılmaz
+  assert.ok(urls.at(-1).includes('gemini-3.0-flash-lite:generateContent'));
+});
