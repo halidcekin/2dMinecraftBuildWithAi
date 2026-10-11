@@ -4,7 +4,7 @@ import { SYSTEM_PROMPT } from './prompt.js';
 import { OP_NAMES, MAX_OPS } from './shapes.js';
 
 const BASE = 'https://generativelanguage.googleapis.com/v1beta/models/';
-export const DEFAULT_MODEL = 'gemini-2.5-flash';
+export const DEFAULT_MODEL = 'gemini-flash-latest';
 
 export class AiError extends Error {
   constructor(code, message) {
@@ -58,6 +58,7 @@ async function call(body, { apiKey, model, signal, fetchImpl = fetch }) {
   if (!res.ok) {
     let detail = '';
     try { detail = (await res.json())?.error?.message ?? ''; } catch { /* boş */ }
+    if (res.status === 404) throw new AiError('MODEL_GONE', `Model bulunamadı. ${detail}`.trim());
     if (res.status === 429) throw new AiError('QUOTA', 'Gemini kotası doldu. Biraz bekleyip tekrar dene.');
     if (res.status === 400 || res.status === 401 || res.status === 403) throw new AiError('BAD_KEY', `Anahtar ya da model geçersiz. ${detail}`.trim());
     throw new AiError('NETWORK', `Gemini hatası (${res.status}). ${detail}`.trim());
@@ -68,7 +69,43 @@ async function call(body, { apiKey, model, signal, fetchImpl = fetch }) {
   return { text, cand };
 }
 
-export async function design(query, { apiKey, model, forceCustom = false, signal, fetchImpl } = {}) {
+const version = (name) => (name.match(/gemini-(\d+(?:\.\d+)?)/) || [0, '0'])[1] * 1;
+
+// Kullanılabilir modellerden en yeni kararlı "flash" modelini seçer.
+export async function pickModel({ apiKey, signal, fetchImpl = fetch }) {
+  let res;
+  try {
+    res = await fetchImpl(`${BASE.slice(0, -1)}?pageSize=1000`, { headers: { 'x-goog-api-key': apiKey }, signal });
+  } catch {
+    throw new AiError('NETWORK', 'Model listesi alınamadı');
+  }
+  if (!res.ok) throw new AiError('BAD_KEY', 'Model listesi alınamadı; anahtarı kontrol et.');
+  const names = ((await res.json())?.models ?? [])
+    .filter((m) => m.supportedGenerationMethods?.includes('generateContent'))
+    .map((m) => String(m.name).replace(/^models\//, ''))
+    .filter((n) => n.startsWith('gemini-'));
+  const byVersion = (a, b) => version(b) - version(a);
+  const plain = names.filter((n) => /^gemini-[\d.]+-flash$/.test(n)).sort(byVersion);
+  const flash = names.filter((n) => n.includes('flash') && !/lite|image|tts|audio|live/.test(n)).sort(byVersion);
+  const pick = plain[0] ?? flash[0] ?? names.sort(byVersion)[0];
+  if (!pick) throw new AiError('BAD_KEY', 'Bu anahtarla kullanılabilir Gemini modeli bulunamadı.');
+  return pick;
+}
+
+// Model kaldırılmışsa (404) güncel modeli bulup bir kez daha dener; opts.model güncellenir.
+async function callModel(body, opts) {
+  try {
+    return await call(body, opts);
+  } catch (e) {
+    if (e.code !== 'MODEL_GONE') throw e;
+    opts.model = await pickModel(opts);
+    opts.onModelChange?.(opts.model);
+    return call(body, opts);
+  }
+}
+
+export async function design(query, { apiKey, model, forceCustom = false, signal, fetchImpl, onModelChange } = {}) {
+  const opts = { apiKey, model, signal, fetchImpl, onModelChange };
   const userText = forceCustom
     ? `${query}\n\n(Bu yapıyı mutlaka kendin tasarla: kind "custom" döndür.)`
     : query;
@@ -82,7 +119,7 @@ export async function design(query, { apiKey, model, forceCustom = false, signal
   let lastError = '';
   for (let attempt = 0; attempt < 2; attempt++) {
     if (signal?.aborted) throw new AiError('ABORTED', 'İstek iptal edildi');
-    const { text } = await call(body(), { apiKey, model, signal, fetchImpl });
+    const { text } = await callModel(body(), opts);
     try {
       const obj = extractJson(text);
       const err = validateDesign(obj);
@@ -104,11 +141,11 @@ const isWebUrl = (u) => {
   try { return ['https:', 'http:'].includes(new URL(u).protocol); } catch { return false; }
 };
 
-export async function findSchematics(terms, { apiKey, model, signal, fetchImpl } = {}) {
-  const { cand } = await call({
+export async function findSchematics(terms, { apiKey, model, signal, fetchImpl, onModelChange } = {}) {
+  const { cand } = await callModel({
     contents: [{ role: 'user', parts: [{ text: `Find downloadable Minecraft schematics / build tutorials for: "${terms}". Prefer bloxelizer.com, planetminecraft.com, minecraft-schematics.com, grabcraft.com. List the best pages.` }] }],
     tools: [{ google_search: {} }],
-  }, { apiKey, model, signal, fetchImpl });
+  }, { apiKey, model, signal, fetchImpl, onModelChange });
   const seen = new Set();
   const links = [];
   for (const ch of cand?.groundingMetadata?.groundingChunks ?? []) {

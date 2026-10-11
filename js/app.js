@@ -17,7 +17,11 @@ const store = {
   del(k) { delete memory[k]; try { localStorage.removeItem(k); } catch { /* yok say */ } },
 };
 const KEY = 'mcab.apiKey', MODEL = 'mcab.model';
-const settings = () => ({ apiKey: store.get(KEY).trim(), model: store.get(MODEL).trim() || DEFAULT_MODEL });
+const settings = () => ({
+  apiKey: store.get(KEY).trim(),
+  model: store.get(MODEL).trim() || DEFAULT_MODEL,
+  onModelChange: (m) => store.set(MODEL, m), // kaldırılan modelin yerine bulunan modeli hatırla
+});
 
 // --- Ekranlar ---
 function show(id) {

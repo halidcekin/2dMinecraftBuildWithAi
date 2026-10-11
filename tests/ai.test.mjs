@@ -113,3 +113,24 @@ test('validateDesign sıkı (Codex #6)', () => {
   assert.ok(validateDesign({ ...base, steps: [{ name: 'a', ops: [{ op: 'teleport' }] }] }));
   assert.ok(validateDesign({ ...base, steps: [{ name: 'a' }] }));
 });
+
+test('model kalkmışsa (404) güncel flash modeline geçer', async () => {
+  const urls = [];
+  const fetchImpl = async (url, init) => {
+    urls.push(url);
+    if (url.includes('gemini-2.5-flash:generateContent')) return fail(404);
+    if (url.endsWith('/models?pageSize=1000')) return { ok: true, status: 200, json: async () => ({ models: [
+      { name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] },
+      { name: 'models/gemini-3.0-flash-lite', supportedGenerationMethods: ['generateContent'] },
+      { name: 'models/gemini-3.0-flash', supportedGenerationMethods: ['generateContent'] },
+      { name: 'models/gemini-3.0-pro', supportedGenerationMethods: ['generateContent'] },
+      { name: 'models/text-embedding-004', supportedGenerationMethods: ['embedContent'] },
+    ] }) };
+    return reply(JSON.stringify(CUSTOM));
+  };
+  let picked;
+  const out = await design('x', { apiKey: 'k', model: 'gemini-2.5-flash', fetchImpl, onModelChange: (m) => { picked = m; } });
+  assert.equal(out.title, 'Dev Ceviz');
+  assert.equal(picked, 'gemini-3.0-flash');
+  assert.ok(urls.at(-1).includes('gemini-3.0-flash:generateContent'));
+});
